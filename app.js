@@ -141,13 +141,14 @@ function sessionCardHtml(s, dateKey, idx, todayKey){
   const flag = flagKey(dateKey, idx);
   const done = isDone(s, dateKey, idx);
   const titleSuffix = s.altSport ? ` <span style="color:var(--muted);font-weight:500;">(oder ${SPORT_LABEL[s.altSport]})</span>` : "";
-  let html = `<div class="session-card ${isRace?"race-card":""}" style="--accent-c:${accent}">
+  let html = `<div class="session-card ${isRace?"race-card":""} ${done?"is-done":""}" style="--accent-c:${accent}">
     <div class="session-head">
       <div class="session-icon">${ICONS[s.sport]}</div>
-      <div>
+      <div class="session-headings">
         <div class="session-title">${s.title}${titleSuffix}</div>
-        <div class="session-meta">${metaText(s)}</div>
+        <div class="session-meta">${metaText(s) || SPORT_LABEL[s.sport]}</div>
       </div>
+      ${done && !s.logged ? `<span class="done-badge" aria-label="erledigt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg></span>` : ""}
     </div>`;
   if(s.blocks && s.blocks.length){
     html += `<div class="session-blocks">`;
@@ -176,13 +177,21 @@ function renderToday(){
   const weekStart = parseDate(week.start);
   const weekdayName = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"][sel.getDay()];
 
+  const viewingToday = selectedKey === todayKey;
   let html = `
-    <div class="weekday">${weekdayName}</div>
-    <div class="date-row">
-      <span class="day-num">${sel.getDate()}.</span>
-      <span class="month-lbl">${MONTH_LABELS[sel.getMonth()]}</span>
-    </div>
-    <div class="week-label">${week.label}</div>
+    <header class="day-header">
+      <div class="kicker-row">
+        <span class="weekday">${weekdayName}</span>
+        ${viewingToday
+          ? `<span class="today-pill">Heute</span>`
+          : `<button class="back-today" data-jump-today>Zu heute</button>`}
+      </div>
+      <div class="date-row">
+        <span class="day-num">${sel.getDate()}</span>
+        <span class="month-lbl">${MONTH_LABELS[sel.getMonth()]}</span>
+      </div>
+      <span class="week-label">${week.label}</span>
+    </header>
     ${raceChipsHtml()}
   `;
 
@@ -196,15 +205,29 @@ function renderToday(){
     const sessions = dayData ? dayData.sessions : [];
     const primary = sessions.length ? sessions[0].sport : "rest";
     const allDone = sessions.length>0 && sessions.every((s,idx)=> isDone(s,key,idx));
-    html += `<button class="day-btn ${isSelected?"selected":""} ${isToday?"today":""} ${allDone?"all-done":""}" data-key="${key}" style="color:${ACCENT[primary]}">
+    const hasTraining = sessions.some(s=> s.sport!=="rest");
+    html += `<button class="day-btn ${isSelected?"selected":""} ${isToday?"today":""} ${allDone?"all-done":""}" data-key="${key}" style="--day-c:${ACCENT[primary]}">
         <span class="lbl">${WEEKDAY_LABELS[i]}</span>
-        <span class="dot-wrap"><span class="check"></span><span class="dot" style="background:${ACCENT[primary]}"></span></span>
+        <span class="num">${d.getDate()}</span>
+        <span class="dot-wrap">
+          <span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg></span>
+          <span class="dot ${hasTraining?"":"rest"}"></span>
+        </span>
       </button>`;
   }
   html += `</div>`;
 
   const agg = aggregate(weekDateKeys(week));
-  if(agg.totalCount>0) html += `<div class="week-progress">${agg.doneCount} von ${agg.totalCount} Einheiten diese Woche erledigt</div>`;
+  if(agg.totalCount>0){
+    const pct = Math.round((agg.doneCount/agg.totalCount)*100);
+    html += `<div class="week-progress">
+      <div class="week-progress-top">
+        <span>Diese Woche</span>
+        <span><b>${agg.doneCount}</b> / ${agg.totalCount} Einheiten</span>
+      </div>
+      <span class="progress-track"><span class="progress-fill" style="width:${pct}%"></span></span>
+    </div>`;
+  }
 
   const dayData = DAY_MAP[selectedKey];
   if(!dayData){
@@ -263,11 +286,11 @@ function renderStats(){
     <div class="section-sub">${week.label}</div>
 
     <div class="stat-hero-row">
-      <div>
+      <div class="stat-tile">
         <div class="stat-hero-figure">${fmtDuration(weekAgg.totalMin) || "0 min"}</div>
         <div class="stat-hero-label">Trainingszeit diese Woche</div>
       </div>
-      <div>
+      <div class="stat-tile">
         <div class="stat-hero-figure">${weekAgg.doneCount}/${weekAgg.totalCount}</div>
         <div class="stat-hero-label">Einheiten erledigt</div>
       </div>
@@ -280,14 +303,14 @@ function renderStats(){
     ${distanceHtml(weekAgg.bySport) ? `<div class="stat-block"><div class="stat-title">Distanz nach Sportart – diese Woche</div>${distanceHtml(weekAgg.bySport)}</div>` : ""}
 
     <div class="stat-card">
-      <div class="stat-title" style="margin-bottom:14px;">Insgesamt in dieser App (seit ${shortDate(parseDate(WEEKS[0].start))})</div>
-      <div class="stat-hero-row" style="margin-bottom:16px;">
-        <div>
-          <div class="stat-hero-figure" style="font-size:28px;">${fmtDuration(allAgg.totalMin) || "0 min"}</div>
+      <div class="stat-title">Insgesamt in dieser App (seit ${shortDate(parseDate(WEEKS[0].start))})</div>
+      <div class="stat-hero-row compact">
+        <div class="stat-tile">
+          <div class="stat-hero-figure">${fmtDuration(allAgg.totalMin) || "0 min"}</div>
           <div class="stat-hero-label">Gesamtzeit</div>
         </div>
-        <div>
-          <div class="stat-hero-figure" style="font-size:28px;">${allAgg.doneCount}/${allAgg.totalCount}</div>
+        <div class="stat-tile">
+          <div class="stat-hero-figure">${allAgg.doneCount}/${allAgg.totalCount}</div>
           <div class="stat-hero-label">Einheiten</div>
         </div>
       </div>
@@ -310,13 +333,15 @@ function renderHistory(){
     pastWeeks.forEach(w=>{
       const agg = aggregate(weekDateKeys(w));
       const start = parseDate(w.start), end = addDays(start,6);
+      const pct = agg.totalCount ? Math.round((agg.doneCount/agg.totalCount)*100) : 0;
       html += `<div class="history-row" data-jump="${w.start}">
-        <div>
+        <div class="history-main">
           <div class="history-week">${w.label}</div>
-          <div class="history-range">${shortDate(start)}–${shortDate(end)}</div>
+          <div class="history-range">${shortDate(start)} – ${shortDate(end)}</div>
+          <span class="progress-track sm"><span class="progress-fill" style="width:${pct}%"></span></span>
         </div>
-        <div style="display:flex;align-items:center;">
-          <div class="history-metric"><b>${agg.doneCount}/${agg.totalCount}</b><br>${fmtDuration(agg.totalMin) || "0 min"}</div>
+        <div class="history-side">
+          <div class="history-metric"><b>${agg.doneCount}/${agg.totalCount}</b><span>${fmtDuration(agg.totalMin) || "0 min"}</span></div>
           <span class="history-arrow">›</span>
         </div>
       </div>`;
@@ -337,6 +362,17 @@ function render(){
 
   app.querySelectorAll(".day-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{ selectedKey = btn.dataset.key; render(); });
+  });
+  const backBtn = app.querySelector("[data-jump-today]");
+  if(backBtn) backBtn.addEventListener("click", ()=>{
+    let key = ymd(new Date());
+    if(!DAY_MAP[key]){
+      const keys = Object.keys(DAY_MAP).sort();
+      key = new Date(key) < parseDate(keys[0]) ? keys[0] : keys[keys.length-1];
+    }
+    selectedKey = key;
+    render();
+    window.scrollTo(0,0);
   });
   app.querySelectorAll(".done-toggle").forEach(btn=>{
     btn.addEventListener("click", ()=>{
