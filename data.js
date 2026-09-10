@@ -6,7 +6,7 @@
    ========================================================== */
 
 const RACES = [
-  { key:"erkner",   name:"Erkner 70.3",         date:"2026-09-13" },
+  { key:"erkner",   name:"Erkner 80.3",         date:"2026-09-13" },
   { key:"marathon", name:"Marathon",            date:"2026-10-25" },
   { key:"ironman",  name:"Ironman Frankfurt",   date:"2027-06-27" }
 ];
