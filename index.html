@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Trainingsplan</title>
 <meta name="theme-color" content="#17152A">
 <meta name="description" content="Täglicher Trainingsplan Richtung Ironman Frankfurt">
@@ -22,6 +22,10 @@
   Neue Version verfügbar <button id="reload-btn">Aktualisieren</button>
 </div>
 
+<script>
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+</script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>
