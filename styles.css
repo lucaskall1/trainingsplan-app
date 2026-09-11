@@ -116,11 +116,7 @@ button,.history-row{
 
 .date-row{display:flex;align-items:baseline;gap:10px;}
 .day-num{
-  font-size:56px;font-weight:800;line-height:1;letter-spacing:-0.03em;position:relative;
-}
-.day-num::after{
-  content:"";position:absolute;left:1px;bottom:7px;width:34px;height:10px;
-  background:var(--accent);opacity:.45;border-radius:5px;z-index:-1;
+  font-size:56px;font-weight:800;line-height:1;letter-spacing:-0.03em;
 }
 .month-lbl{font-size:17px;font-weight:600;color:var(--muted);}
 .week-label{
