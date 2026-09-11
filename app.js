@@ -350,18 +350,49 @@ function renderHistory(){
   return html;
 }
 
+/* ---------- Enter-Animationen ----------
+   Der DOM wird bei jedem render() neu aufgebaut, CSS-Transitions auf
+   Zustandsklassen greifen deshalb nicht. Stattdessen: fx-Klasse auf .app
+   (steuert das Einblenden) und .pop / .check-in nur auf dem Element, das
+   sich gerade geändert hat. reason: "load" | "tab" | "day" | "toggle" */
+function applyEnterFx(app, reason, detail, prevFillWidth){
+  app.className = "app" + (reason ? " fx-"+reason : "");
+  if(reason==="tab"){
+    app.querySelector(".tab-btn.active")?.classList.add("pop");
+  } else if(reason==="day"){
+    app.querySelector(".day-btn.selected")?.classList.add("pop");
+  } else if(reason==="toggle"){
+    const btn = app.querySelector(`.done-toggle[data-flag="${detail}"]`);
+    if(btn){
+      btn.classList.add("pop");
+      btn.closest(".session-card")?.querySelector(".done-badge")?.classList.add("pop");
+    }
+    app.querySelector(".day-btn.selected.all-done")?.classList.add("check-in");
+    // Wochenbalken von alter zu neuer Breite gleiten lassen statt springen
+    const fill = app.querySelector(".week-progress .progress-fill");
+    if(fill && prevFillWidth){
+      const target = fill.style.width;
+      fill.style.width = prevFillWidth;
+      fill.getBoundingClientRect(); // Reflow erzwingen, sonst startet die Transition nicht
+      fill.style.width = target;
+    }
+  }
+}
+
 /* ---------- Haupt-Render ---------- */
-function render(){
+function render(reason, detail){
   const app = document.getElementById("app");
+  const prevFillWidth = app.querySelector(".week-progress .progress-fill")?.style.width;
   let html = "";
   if(activeTab==="today") html = renderToday();
   else if(activeTab==="stats") html = renderStats();
   else if(activeTab==="history") html = renderHistory();
 
   app.innerHTML = html + tabbarHtml();
+  applyEnterFx(app, reason, detail, prevFillWidth);
 
   app.querySelectorAll(".day-btn").forEach(btn=>{
-    btn.addEventListener("click", ()=>{ selectedKey = btn.dataset.key; render(); });
+    btn.addEventListener("click", ()=>{ selectedKey = btn.dataset.key; render("day"); });
   });
   const backBtn = app.querySelector("[data-jump-today]");
   if(backBtn) backBtn.addEventListener("click", ()=>{
@@ -371,7 +402,7 @@ function render(){
       key = new Date(key) < parseDate(keys[0]) ? keys[0] : keys[keys.length-1];
     }
     selectedKey = key;
-    render();
+    render("day");
     window.scrollTo(0,0);
   });
   app.querySelectorAll(".done-toggle").forEach(btn=>{
@@ -379,27 +410,27 @@ function render(){
       const key = btn.dataset.flag;
       doneFlags[key] = !doneFlags[key];
       saveFlags();
-      render();
+      render("toggle", key);
     });
   });
   app.querySelectorAll(".history-row").forEach(row=>{
     row.addEventListener("click", ()=>{
       selectedKey = row.dataset.jump;
       activeTab = "today";
-      render();
+      render("tab");
       window.scrollTo(0,0);
     });
   });
   app.querySelectorAll(".tab-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       activeTab = btn.dataset.tab;
-      render();
+      render("tab");
       window.scrollTo(0,0);
     });
   });
 }
 
-render();
+render("load");
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", ()=>{
