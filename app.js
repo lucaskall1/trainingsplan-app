@@ -178,7 +178,9 @@ function renderToday(){
   const weekdayName = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"][sel.getDay()];
 
   const viewingToday = selectedKey === todayKey;
-  let html = `
+  // .today-side / .today-main: auf dem Handy display:contents (unsichtbar),
+  // am Desktop ab 1200px zwei Spalten (Kopf+Woche links, Einheiten rechts)
+  let html = `<div class="today-side">
     <header class="day-header">
       <div class="kicker-row">
         <span class="weekday">${weekdayName}</span>
@@ -228,6 +230,7 @@ function renderToday(){
       <span class="progress-track"><span class="progress-fill" style="width:${pct}%"></span></span>
     </div>`;
   }
+  html += `</div><div class="today-main">`;
 
   const dayData = DAY_MAP[selectedKey];
   if(!dayData){
@@ -238,6 +241,7 @@ function renderToday(){
     dayData.sessions.forEach((s,idx)=>{ html += sessionCardHtml(s, selectedKey, idx, todayKey); });
   }
   html += `<div class="footer-note">Lokal gespeichert auf diesem Gerät · Stand ${new Date().toLocaleDateString("de-DE")}</div>`;
+  html += `</div>`;
   return html;
 }
 
@@ -388,7 +392,7 @@ function render(reason, detail){
   else if(activeTab==="stats") html = renderStats();
   else if(activeTab==="history") html = renderHistory();
 
-  app.innerHTML = html + tabbarHtml();
+  app.innerHTML = `<main class="view view-${activeTab}">${html}</main>` + tabbarHtml();
   applyEnterFx(app, reason, detail, prevFillWidth);
 
   app.querySelectorAll(".day-btn").forEach(btn=>{
