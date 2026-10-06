@@ -14,49 +14,44 @@ const RACES = [
 const WEEKS = [
 {
   start: "2026-10-05",
-  label: "Aufbau-Woche 2 · Wiedereinstieg & FTP",
+  label: "Aufbau-Woche 2 · Wiedereinstieg",
   days: {
     "2026-10-05": { sessions: [
-      { sport:"rest", title:"Mobility", durationMin:20, intensity:"locker",
-        note:"Heute bewusst nur Mobility (Halskratzen, schlapp)." }
+      { sport:"rest", title:"Mobility", durationMin:20, intensity:"locker", logged:true }
     ]},
     "2026-10-06": { sessions: [
-      { sport:"swim", title:"Schwimmen locker", durationLabel:"35–50 min", durationMin:40, distanceKm:1.5, intensity:"locker, Technik",
-        note:"→ Einheit 3 (Beinschlag-Schwerpunkt) aus deinem triswim-Plan. Nur bei Ampel Grün/Gelb. Vorher essen, nachher langsam aufstehen." },
-      { sport:"run", title:"Laufen locker", durationMin:24, distanceKm:4, intensity:"locker, ca. 6:05/km",
-        note:"Nur bei Ampel Grün (Hals nicht schlimmer, normale Energie). Sonst entfällt der Lauf." }
+      { sport:"swim", title:"Schwimmen", durationMin:40, distanceKm:1.5, intensity:"locker, Technik", logged:true,
+        note:"→ Einheit 3 (Beinschlag-Schwerpunkt) aus deinem triswim-Plan." },
+      { sport:"run", title:"Laufen locker", durationMin:24, distanceKm:4, intensity:"locker", logged:true }
     ]},
     "2026-10-07": { sessions: [
-      { sport:"bike", title:"Rad locker", durationMin:45, intensity:"Z1–Z2, ca. 125–145 W" },
-      { sport:"strength", title:"Kraft Beine + Stabi", durationMin:45, intensity:"moderat, kontrolliert",
-        blocks:[
-          {label:"Fokus", text:"Kniebeuge, Rumänisches Kreuzheben, Beinpresse, Wadenheben – kontrolliert, kein Plyo"},
-          {label:"Stabi", text:"Hüfte/Fuß/Schienbein-Stabilisation, Eccentric-Waden"}
-        ] }
+      { sport:"bike", title:"Lange Rad-Einheit", durationLabel:"2:00–2:30 h", durationMin:135, intensity:"Zone 2, ca. 140–155 W",
+        note:"Gegen 10–12:30 Uhr, nach dem Frühstück, mit Trinken und Kohlenhydraten ab der 2. Stunde. Bei Müdigkeit bei 1:30 h aufhören, bei komischem Gefühl sofort abbrechen." },
+      { sport:"strength", title:"Kraft Oberkörper (optional)", durationMin:40, intensity:"moderat",
+        note:"Abends, nur wenn Energie und Lernplan passen." }
     ]},
     "2026-10-08": { sessions: [
       { sport:"swim", title:"Schwimmen", durationLabel:"45–60 min", durationMin:50, distanceKm:1.8, intensity:"locker bis zügig, Tempo-Teile moderater",
         note:"→ Einheit 4 (Intensität) aus deinem triswim-Plan." },
-      { sport:"run", title:"Laufen locker", durationMin:27, distanceKm:4.5, intensity:"locker, ca. 6:05/km" },
-      { sport:"rest", title:"Mobility", durationMin:15, intensity:"locker" }
+      { sport:"strength", title:"Kraft Beine + Stabi", durationMin:45, intensity:"moderat, 2–3 Wdh. im Tank",
+        blocks:[
+          {label:"Fokus", text:"Kniebeuge, Rumänisches Kreuzheben, Beinpresse, Wadenheben – kontrolliert, kein Plyo"},
+          {label:"Stabi", text:"Hüfte/Fuß/Schienbein-Stabilisation, Eccentric-Waden"}
+        ],
+        note:"Kein Muskelkater provozieren, am Samstag steht der Long Run." }
     ]},
     "2026-10-09": { sessions: [
-      { sport:"strength", title:"Kraft Oberkörper", durationMin:40, intensity:"moderat" },
-      { sport:"bike", title:"FTP-Test (Rolle)", durationMin:45, intensity:"Ramp-Test, Test maximal, drumherum locker",
-        blocks:[
-          {label:"Warm-up", text:"10–15 min locker einrollen"},
-          {label:"Test", text:"Ramp-Test bis zum Abbruch, nicht selbst pacen"},
-          {label:"Cooldown", text:"5–10 min ganz locker, danach erst hinsetzen, dann aufstehen"}
-        ],
-        note:"Nur wenn komplett symptomfrei und Hausarzt-Check erledigt. Mit Mahlzeit davor, jemand in der Wohnung. Sonst lockerer Spin statt Test." }
+      { sport:"run", title:"Laufen locker", durationMin:27, distanceKm:4.5, intensity:"locker, ca. 6:05/km",
+        note:"Vor der Uni. Vorher Banane und Wasser, nie nüchtern. Bei Schienbein-Reaktion ausfallen lassen." },
+      { sport:"rest", title:"Mobility", durationMin:15, intensity:"locker" }
     ]},
     "2026-10-10": { sessions: [
-      { sport:"bike", title:"Lange Rad-Einheit", durationLabel:"2:00–2:30 h", durationMin:135, intensity:"Zone 2 (56–75 % FTP)",
-        note:"Wenn die Beine nach dem Test schwer sind: bei 1:30 h aufhören. Ohne FTP-Wert: wie zuletzt bei ca. 140–155 W." }
+      { sport:"run", title:"Long Run", durationMin:67, distanceKm:11, intensity:"locker, ca. 6:05/km, nicht schneller",
+        note:"Checkpoint 1 für die Marathon-Frage: Schienbeine und Kreislauf bei km 8–11 beobachten. Gut frühstücken, Wasser mitnehmen." }
     ]},
     "2026-10-11": { sessions: [
-      { sport:"run", title:"Long Run", durationMin:67, distanceKm:11, intensity:"locker, ca. 6:05/km, nicht schneller",
-        note:"Checkpoint 1 für die Marathon-Frage: Schienbeine und Kreislauf bei km 8–11 beobachten." },
+      { sport:"bike", title:"Rad-Ausfahrt draußen", durationLabel:"60–90 min", durationMin:75, intensity:"Z1–Z2, flach, locker",
+        note:"Frühstück vorher, Wasser, Helm, Handy, Ausweis. Bei Schwindel sofort abbrechen." },
       { sport:"rest", title:"Mobility", durationMin:15, intensity:"locker" }
     ]}
   }
