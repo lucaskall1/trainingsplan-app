@@ -16,7 +16,7 @@ const WEEKS = [
   label: "Halbmarathon-Woche · Pace-Test & Rennen",
   days: {
     "2026-10-19": { sessions: [
-      { sport:"swim", title:"Schwimmen", durationLabel:"40–55 min", durationMin:45, distanceKm:1.7, intensity:"locker, Technik",
+      { sport:"swim", title:"Schwimmen", durationLabel:"40–55min", durationMin:45, distanceKm:1.7, intensity:"locker, Technik",
         note:"→ Einheit 5 (Effizienz) aus deinem triswim-Plan." },
       { sport:"strength", title:"Kraft Oberkörper", durationMin:40, intensity:"moderat, 2–3 Wdh. im Tank",
         note:"Keine Beine diese Woche." }
