@@ -13,7 +13,7 @@ const RACES = [
 const WEEKS = [
 {
   start: "2026-10-19",
-  label: "Halbmarathon-Woche · Pace-Test & Rennen",
+  label: "Halbmarathon-Woche · Pace-Tesst & Rennen",
   days: {
     "2026-10-19": { sessions: [
       { sport:"swim", title:"Schwimmen", durationLabel:"40–55min", durationMin:45, distanceKm:1.7, intensity:"locker, Technik",
