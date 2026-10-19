@@ -1,12 +1,28 @@
 const WEEKDAY_LABELS = ["Mo","Di","Mi","Do","Fr","Sa","So"];
 const MONTH_LABELS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const STORAGE_KEY = "trainingsplan-done-flags";
+const CHECKIN_KEY = "trainingsplan-checkins";
+const STORAGE_PREFIX = "trainingsplan-"; // alle App-Daten im localStorage, fuer Backup
+const MONTH_SHORT = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+const DAY_MS = 86400000;
 
 function pad(n){ return String(n).padStart(2,"0"); }
 function ymd(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function parseDate(key){ const [y,m,d]=key.split("-").map(Number); return new Date(y,m-1,d); }
 function addDays(d,n){ const r=new Date(d); r.setDate(r.getDate()+n); return r; }
 function shortDate(d){ return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.`; }
+function longDate(d){ return `${shortDate(d)}${d.getFullYear()}`; }
+function todayDate(){ return parseDate(ymd(new Date())); }
+// Ganze Kalendertage von a nach b (beide Mitternacht; round faengt Zeitumstellung ab)
+function dayDiff(a,b){ return Math.round((b-a)/DAY_MS); }
+function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
+function inDays(n){
+  if(n===0) return "heute";
+  if(n===1) return "morgen";
+  if(n===-1) return "gestern";
+  return n>0 ? `in ${n} Tagen` : `vor ${-n} Tagen`;
+}
+function esc(str){ return String(str).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 const DAY_MAP = {};
 WEEKS.forEach(w=>{ for(const [k,v] of Object.entries(w.days)){ DAY_MAP[k]={...v, weekLabel:w.label}; } });
@@ -22,13 +38,24 @@ const ICONS = {
 const TAB_ICONS = {
   today: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17"/><path d="M8 3v3M16 3v3"/><circle cx="12" cy="14.5" r="2" fill="currentColor" stroke="none"/></svg>',
   stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M12 20V4"/><path d="M20 20v-7"/></svg>',
-  history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M9 2h6"/></svg>'
+  phases: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M12 5h6l2.2 2.5L18 10h-6"/><path d="M12 12H6l-2.2 2.5L6 17h6"/><path d="M9 21h6"/></svg>'
+};
+const MILESTONE_ICONS = {
+  race: ICONS.race,
+  test: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.5l2.5 1.5"/><path d="M10 2.5h4"/><path d="M12 2.5V6"/></svg>',
+  checkpoint: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.8-5"/></svg>'
 };
 const ACCENT = { swim:"var(--swim)", bike:"var(--bike)", run:"var(--run)", strength:"var(--strength)", rest:"var(--rest)", race:"var(--gold)" };
 const SPORT_LABEL = { swim:"Schwimmen", bike:"Rad", run:"Laufen", strength:"Kraft", rest:"Ruhe", race:"Rennen" };
+const FOCUS_ROWS = [["swim","Schwimmen"],["bike","Rad"],["run","Laufen"],["strength","Kraft"],["recovery","Erholung"]];
+const WEEK_TYPE_LABEL = { build:"Aufbau", deload:"Entlastung", recovery:"Erholung", race:"Renn-Woche", taper:"Taper" };
+const UNRATED_WEEK_TYPES = ["race","recovery"]; // zaehlen nicht fuer die 10-%-Regel
 
-let doneFlags = {};
-try{ doneFlags = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); }catch(e){ doneFlags = {}; }
+function loadJson(key){
+  try{ return JSON.parse(localStorage.getItem(key) || "{}") || {}; }catch(e){ return {}; }
+}
+let doneFlags = loadJson(STORAGE_KEY);
+let checkins = loadJson(CHECKIN_KEY); // { "YYYY-MM-DD": { energy, shin, circ, note } }
 
 let selectedKey = ymd(new Date());
 if(!DAY_MAP[selectedKey]){
@@ -36,6 +63,7 @@ if(!DAY_MAP[selectedKey]){
   selectedKey = new Date(selectedKey) < parseDate(keys[0]) ? keys[0] : keys[keys.length-1];
 }
 let activeTab = "today";
+let openPhases = null; // Set der aufgeklappten Phasen im Phasen-Tab; null = Standard (aktuelle Phase)
 
 function flagKey(dateKey, idx){ return dateKey+"#"+idx; }
 function saveFlags(){
@@ -43,6 +71,10 @@ function saveFlags(){
   catch(e){ console.error("Konnte Fortschritt nicht speichern:", e); }
 }
 function isDone(s, dateKey, idx){ return s.logged || !!doneFlags[flagKey(dateKey, idx)]; }
+function saveCheckins(){
+  try{ localStorage.setItem(CHECKIN_KEY, JSON.stringify(checkins)); }
+  catch(e){ console.error("Konnte Check-in nicht speichern:", e); }
+}
 
 function weekForKey(key){
   const d = parseDate(key);
@@ -100,6 +132,78 @@ function weekDateKeys(week){
 }
 function allDateKeys(){ return Object.keys(DAY_MAP); }
 
+/* ---------- Phasen ----------
+   Alles wird nur aus dem Datum und PHASES berechnet, nichts gespeichert. */
+function phaseDays(p){ return dayDiff(parseDate(p.start), parseDate(p.end)) + 1; }
+function phaseWeeks(p){ return Math.ceil(phaseDays(p)/7); }
+function shortPhaseName(p){ return p.name.replace(/\s*\(.*\)\s*$/,""); } // "Aufbauphase (Hamburg-Marathon)" → "Aufbauphase"
+function planTotalWeeks(){ return Math.ceil((dayDiff(parseDate(PLAN_START), parseDate(PLAN_END)) + 1)/7); }
+
+// mode: "before" (vor PLAN_START) | "in" | "after" (nach PLAN_END)
+function phaseStatus(t){
+  const start = parseDate(PLAN_START), end = parseDate(PLAN_END);
+  const totalWeeks = planTotalWeeks();
+  if(t < start) return { mode:"before", daysToStart: dayDiff(t,start), next: PHASES[0], totalWeeks };
+  if(t > end) return { mode:"after", totalWeeks };
+  let idx = PHASES.findIndex(p=> t>=parseDate(p.start) && t<=parseDate(p.end));
+  // Lücke zwischen zwei Phasen: die zuletzt begonnene gilt weiter, bis die nächste startet
+  if(idx<0) idx = PHASES.reduce((acc,p,i)=> parseDate(p.start)<=t ? i : acc, 0);
+  const phase = PHASES[idx];
+  const ps = parseDate(phase.start);
+  const weeks = phaseWeeks(phase);
+  const elapsed = dayDiff(ps,t);
+  const next = PHASES[idx+1] || null;
+  return {
+    mode:"in", idx, phase, weeks, totalWeeks, next,
+    week: Math.min(weeks, Math.floor(elapsed/7)+1),
+    pct: clamp(Math.round((elapsed+1)/phaseDays(phase)*100), 0, 100),
+    daysToNext: next ? dayDiff(t, parseDate(next.start)) : null,
+    overallWeek: Math.min(totalWeeks, Math.floor(dayDiff(start,t)/7)+1)
+  };
+}
+// "done" | "current" | "upcoming"
+function phaseState(p, st, t){
+  if(st.mode==="in") return p.key===st.phase.key ? "current" : (parseDate(p.end) < t ? "done" : "upcoming");
+  return st.mode==="after" ? "done" : "upcoming";
+}
+function nextPhaseLine(st){
+  if(!st.next) return `Als Nächstes: ${raceName()} am ${longDate(parseDate(PLAN_END))} (${inDays(dayDiff(todayDate(), parseDate(PLAN_END)))})`;
+  return `Als Nächstes: ${shortPhaseName(st.next)} ab ${longDate(parseDate(st.next.start))} (${inDays(st.daysToNext)})`;
+}
+function raceName(){ return (RACES.find(r=> r.date===PLAN_END) || {name:"Ironman"}).name; }
+
+function phaseBannerHtml(){
+  const st = phaseStatus(todayDate());
+  let kicker, right, line, total, target = "";
+  if(st.mode==="before"){
+    kicker = "Vorbereitung";
+    right = `Start ${inDays(st.daysToStart)}`;
+    line = `Als Nächstes: ${shortPhaseName(st.next)} ab ${longDate(parseDate(st.next.start))}`;
+    total = `Gesamt: ${st.totalWeeks} Wochen bis Ironman`;
+    target = st.next.key;
+  } else if(st.mode==="after"){
+    kicker = "Nach dem Rennen · Regeneration";
+    right = "";
+    line = `${raceName()} · ${longDate(parseDate(PLAN_END))}`;
+    total = "";
+  } else {
+    kicker = shortPhaseName(st.phase);
+    right = `Woche <b>${st.week}</b> von ${st.weeks}`;
+    line = nextPhaseLine(st);
+    total = `Gesamt: Woche ${st.overallWeek} von ${st.totalWeeks} bis Ironman`;
+    target = st.phase.key;
+  }
+  const bar = st.mode==="in"
+    ? `<span class="progress-track xs" role="progressbar" aria-label="Fortschritt ${esc(st.phase.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${st.pct}"><span class="progress-fill" style="width:${st.pct}%"></span></span>`
+    : "";
+  return `<button class="phase-banner" data-goto-phase="${target}" aria-label="Phase: ${esc(kicker)}${st.mode==="in"?`, Woche ${st.week} von ${st.weeks}`:""}. Details im Tab Phasen">
+    <span class="phase-banner-top"><span class="phase-kicker">${kicker}</span>${right?`<span class="phase-banner-week">${right}</span>`:""}</span>
+    ${bar}
+    <span class="phase-banner-next">${line}</span>
+    ${total?`<span class="phase-banner-total">${total}</span>`:""}
+  </button>`;
+}
+
 /* ---------- Renn-Countdown-Chips ---------- */
 function raceChipsHtml(){
   const today = new Date();
@@ -125,12 +229,12 @@ function raceChipsHtml(){
 
 /* ---------- Tab-Bar ---------- */
 function tabbarHtml(){
-  const tabs = [["today","Heute"],["stats","Statistik"],["history","Verlauf"]];
-  let html = `<div class="tabbar">`;
+  const tabs = [["today","Heute"],["stats","Statistik"],["phases","Phasen"]];
+  let html = `<nav class="tabbar" aria-label="Hauptnavigation">`;
   tabs.forEach(([key,label])=>{
-    html += `<button class="tab-btn ${activeTab===key?"active":""}" data-tab="${key}">${TAB_ICONS[key]}<span>${label}</span></button>`;
+    html += `<button class="tab-btn ${activeTab===key?"active":""}" data-tab="${key}" ${activeTab===key?'aria-current="page"':""}>${TAB_ICONS[key]}<span>${label}</span></button>`;
   });
-  html += `</div>`;
+  html += `</nav>`;
   return html;
 }
 
@@ -168,6 +272,34 @@ function sessionCardHtml(s, dateKey, idx, todayKey){
   return html;
 }
 
+/* ---------- Tages-Check-in ---------- */
+function chipGroupHtml(field, label, values, current){
+  let html = `<div class="ci-row"><span class="ci-label" id="ci-${field}">${label}</span><div class="ci-chips ci-${field}" role="group" aria-labelledby="ci-${field}">`;
+  values.forEach(([val,txt])=>{
+    html += `<button type="button" class="ci-chip" data-ci-field="${field}" data-ci-val="${val}" aria-pressed="${current===val}">${txt}</button>`;
+  });
+  return html + `</div></div>`;
+}
+function checkinCardHtml(dateKey){
+  const c = checkins[dateKey] || {};
+  const d = parseDate(dateKey);
+  const range = (a,b)=> [...Array(b-a+1)].map((_,i)=> [a+i, String(a+i)]);
+  return `<section class="checkin-card" aria-labelledby="checkin-title">
+    <div class="stat-title" id="checkin-title">Wie fühlst du dich?</div>
+    ${chipGroupHtml("energy", "Energie", range(1,5), c.energy)}
+    ${chipGroupHtml("shin", "Schienbein", range(0,10), c.shin)}
+    ${chipGroupHtml("circ", "Kreislauf", [["ok","ok"],["komisch","komisch"]], c.circ)}
+    <textarea class="ci-note" data-ci-note rows="2" placeholder="Notiz (optional)" aria-label="Notiz zum ${shortDate(d)}">${esc(c.note||"")}</textarea>
+    <div class="ci-hint">Gespeichert für ${WEEKDAY_LABELS[(d.getDay()+6)%7]} ${shortDate(d)} · nur auf diesem Gerät</div>
+  </section>`;
+}
+function updateCheckin(dateKey, field, value){
+  const entry = {...(checkins[dateKey]||{})};
+  if(value===undefined || value==="") delete entry[field]; else entry[field] = value;
+  if(Object.keys(entry).length) checkins[dateKey] = entry; else delete checkins[dateKey];
+  saveCheckins();
+}
+
 /* ---------- Tab: Heute ---------- */
 function renderToday(){
   const today = new Date();
@@ -192,8 +324,12 @@ function renderToday(){
         <span class="day-num">${sel.getDate()}</span>
         <span class="month-lbl">${MONTH_LABELS[sel.getMonth()]}</span>
       </div>
-      <span class="week-label">${week.label}</span>
+      <div class="week-row">
+        <span class="week-label">${week.label}</span>
+        ${WEEK_TYPE_LABEL[week.type] ? `<span class="week-type ${week.type}">${WEEK_TYPE_LABEL[week.type]}</span>` : ""}
+      </div>
     </header>
+    ${phaseBannerHtml()}
     ${raceChipsHtml()}
   `;
 
@@ -240,6 +376,7 @@ function renderToday(){
     if(dayData.sessions.length===0 && !dayData.dayNote) html += `<div class="empty">Ruhetag – bewusst nichts tun.</div>`;
     dayData.sessions.forEach((s,idx)=>{ html += sessionCardHtml(s, selectedKey, idx, todayKey); });
   }
+  if(selectedKey <= todayKey) html += checkinCardHtml(selectedKey);
   html += `<div class="footer-note">Lokal gespeichert auf diesem Gerät · Stand ${new Date().toLocaleDateString("de-DE")}</div>`;
   html += `</div>`;
   return html;
@@ -279,6 +416,159 @@ function distanceHtml(bySport){
   });
   return html;
 }
+/* Laufumfang je Woche + 10-%-Regel (Schienbein-Schutz).
+   Steigerung bezieht sich auf die geplanten km der letzten gewerteten Woche. */
+function fmtKm(km){ return `${km.toLocaleString("de-DE",{maximumFractionDigits:1})} km`; }
+function runVolume(week){
+  let planned = 0, done = 0;
+  weekDateKeys(week).forEach(key=>{
+    (DAY_MAP[key]?.sessions || []).forEach((s,idx)=>{
+      if(s.sport!=="run" || !s.distanceKm) return;
+      planned += s.distanceKm;
+      if(isDone(s,key,idx)) done += s.distanceKm;
+    });
+  });
+  return { planned, done };
+}
+function runVolumeRows(){
+  let prevRated = null;
+  return WEEKS.map(w=>{
+    const vol = runVolume(w);
+    const rated = !UNRATED_WEEK_TYPES.includes(w.type);
+    let delta = null, level = "";
+    if(rated){
+      if(prevRated && prevRated.planned>0){
+        delta = Math.round((vol.planned/prevRated.planned - 1)*100);
+        level = delta>20 ? "high" : delta>10 ? "warn" : "ok";
+      }
+      prevRated = vol;
+    }
+    return { week:w, ...vol, rated, delta, level };
+  });
+}
+function runVolumeHtml(){
+  const rows = runVolumeRows();
+  const lastRated = [...rows].reverse().find(r=> r.rated && r.planned>0);
+  let html = `<div class="stat-card">
+    <div class="stat-title">Laufumfang &amp; 10-%-Regel</div>
+    <div class="vol-table" role="table" aria-label="Laufumfang pro Woche">
+      <div class="vol-row vol-head" role="row"><span class="vol-week" role="columnheader">Woche</span><span role="columnheader">geplant</span><span role="columnheader">erledigt</span><span role="columnheader">Δ</span></div>`;
+  [...rows].reverse().forEach(r=>{
+    const start = parseDate(r.week.start);
+    const deltaTxt = !r.rated ? "–" : r.delta===null ? "–" : `${r.delta>0?"+":""}${r.delta} %`;
+    html += `<div class="vol-row ${r.rated?"":"unrated"}" role="row">
+      <span class="vol-week" role="cell">${shortDate(start)}${!r.rated ? `<small>${WEEK_TYPE_LABEL[r.week.type]} · nicht gewertet</small>` : ""}</span>
+      <span role="cell">${fmtKm(r.planned)}</span>
+      <span role="cell">${fmtKm(r.done)}</span>
+      <span class="vol-delta ${r.level}" role="cell">${deltaTxt}</span>
+    </div>`;
+  });
+  html += `</div>`;
+  html += lastRated
+    ? `<div class="vol-limit">Limit nächste Woche: <b>≤ ${fmtKm(lastRated.planned*1.1)}</b> (+10 %)</div>`
+    : `<div class="vol-limit">Limit nächste Woche: noch keine gewertete Woche</div>`;
+  html += `<div class="vol-legend"><span class="ok">≤ +10 % ok</span><span class="warn">+10–20 % Vorsicht</span><span class="high">&gt; +20 % zu viel</span></div>
+  </div>`;
+  return html;
+}
+
+/* Wochen-Check-in als Text für den Coaching-Chat */
+function weekCheckinText(week){
+  const todayKey = ymd(new Date());
+  const keys = weekDateKeys(week);
+  const done = [], skipped = [], open = [];
+  keys.forEach((key,i)=>{
+    (DAY_MAP[key]?.sessions || []).forEach((s,idx)=>{
+      const name = `${WEEKDAY_LABELS[i]} ${s.title}`;
+      if(isDone(s,key,idx)) done.push(name);
+      else if(key < todayKey) skipped.push(name);
+      else open.push(name);
+    });
+  });
+  const vol = runVolume(week);
+  const start = parseDate(week.start);
+  const lines = [
+    `Wochen-Check-in ${shortDate(start)}–${shortDate(addDays(start,6))} · ${week.label}`,
+    `Erledigt (${done.length}): ${done.join(", ") || "–"}`,
+    `Ausgelassen (${skipped.length}): ${skipped.join(", ") || "–"}`
+  ];
+  if(open.length) lines.push(`Noch offen (${open.length}): ${open.join(", ")}`);
+  lines.push(`Laufen: ${fmtKm(vol.done)} von ${fmtKm(vol.planned)} geplant`);
+  const feel = [];
+  keys.forEach((key,i)=>{
+    const c = checkins[key];
+    if(!c) return;
+    const parts = [];
+    if(c.energy!=null) parts.push(`Energie ${c.energy}/5`);
+    if(c.shin!=null) parts.push(`Schienbein ${c.shin}/10`);
+    if(c.circ) parts.push(`Kreislauf ${c.circ}`);
+    if(c.note) parts.push(`Notiz: ${c.note.replace(/\s+/g," ").trim()}`);
+    if(parts.length) feel.push(`${WEEKDAY_LABELS[i]} ${shortDate(parseDate(key))}: ${parts.join(" · ")}`);
+  });
+  lines.push(feel.length ? "Befinden:\n" + feel.join("\n") : "Befinden: keine Einträge");
+  return lines.join("\n");
+}
+function copyText(text){
+  if(navigator.clipboard && window.isSecureContext){
+    return navigator.clipboard.writeText(text).catch(()=> copyFallback(text));
+  }
+  return Promise.resolve(copyFallback(text));
+}
+function copyFallback(text){
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly","");
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try{ ok = document.execCommand("copy"); }catch(e){ ok = false; }
+  ta.remove();
+  if(!ok) throw new Error("Kopieren nicht möglich");
+}
+
+/* Backup: alle localStorage-Keys der App als JSON */
+function exportData(){
+  const data = {};
+  for(let i=0;i<localStorage.length;i++){
+    const key = localStorage.key(i);
+    if(!key || !key.startsWith(STORAGE_PREFIX)) continue;
+    try{ data[key] = JSON.parse(localStorage.getItem(key)); }catch(e){ data[key] = localStorage.getItem(key); }
+  }
+  const payload = { app:"trainingsplan", version:1, exportedAt:new Date().toISOString(), data };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `trainingsplan-backup-${ymd(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+}
+function importData(file, statusEl){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const payload = JSON.parse(reader.result);
+      const data = payload && payload.app==="trainingsplan" ? payload.data : null;
+      const keys = data && typeof data==="object" ? Object.keys(data).filter(k=> k.startsWith(STORAGE_PREFIX)) : [];
+      if(keys.length===0) throw new Error("keine Trainingsplan-Daten");
+      if(!confirm("Die Daten auf diesem Gerät werden durch das Backup ersetzt. Fortfahren?")) return;
+      keys.forEach(k=> localStorage.setItem(k, typeof data[k]==="string" ? data[k] : JSON.stringify(data[k])));
+      doneFlags = loadJson(STORAGE_KEY);
+      checkins = loadJson(CHECKIN_KEY);
+      render();
+      const el = document.querySelector("[data-backup-status]");
+      if(el) el.textContent = "Backup importiert.";
+    }catch(e){
+      statusEl.textContent = "Import fehlgeschlagen: Datei ist kein gültiges Backup.";
+    }
+  };
+  reader.onerror = ()=>{ statusEl.textContent = "Datei konnte nicht gelesen werden."; };
+  reader.readAsText(file);
+}
+
 function renderStats(){
   const today = new Date();
   const week = weekForKey(ymd(today));
@@ -320,37 +610,159 @@ function renderStats(){
       </div>
       ${barsHtml(allAgg.bySport)}
     </div>
+    ${runVolumeHtml()}
+
+    <div class="stat-card">
+      <div class="stat-title">Wochen-Check-in</div>
+      <p class="card-hint">Erledigte und ausgelassene Einheiten, Laufumfang und dein Befinden dieser Woche als Text für den Coaching-Chat.</p>
+      <button type="button" class="action-btn" data-copy-checkin>Wochen-Check-in kopieren</button>
+      <div class="action-status" data-copy-status role="status" aria-live="polite"></div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-title">Datensicherung</div>
+      <p class="card-hint">Häkchen und Check-ins liegen nur auf diesem Gerät. Ein Backup schützt vor Verlust beim Löschen der Browserdaten.</p>
+      <div class="action-row">
+        <button type="button" class="action-btn" data-export>Daten exportieren</button>
+        <button type="button" class="action-btn" data-import-trigger>Importieren</button>
+        <input type="file" accept="application/json,.json" data-import hidden>
+      </div>
+      <div class="action-status" data-backup-status role="status" aria-live="polite"></div>
+    </div>
     <div class="footer-note">Basiert auf den Einheiten, die du in dieser App als erledigt markierst.</div>
   `;
   return html;
 }
 
-/* ---------- Tab: Verlauf ---------- */
-function renderHistory(){
-  const today = new Date();
-  const pastWeeks = WEEKS.filter(w=> addDays(parseDate(w.start),6) < today).reverse();
-
-  let html = `<div class="section-title">Verlauf</div><div class="section-sub">Abgeschlossene Wochen</div>`;
-  if(pastWeeks.length===0){
-    html += `<div class="empty">Noch keine abgeschlossene Woche.<br>Die erste erscheint hier automatisch, sobald eine Trainingswoche vorbei ist.</div>`;
-  } else {
-    pastWeeks.forEach(w=>{
-      const agg = aggregate(weekDateKeys(w));
-      const start = parseDate(w.start), end = addDays(start,6);
-      const pct = agg.totalCount ? Math.round((agg.doneCount/agg.totalCount)*100) : 0;
-      html += `<div class="history-row" data-jump="${w.start}">
-        <div class="history-main">
-          <div class="history-week">${w.label}</div>
-          <div class="history-range">${shortDate(start)} – ${shortDate(end)}</div>
-          <span class="progress-track sm"><span class="progress-fill" style="width:${pct}%"></span></span>
-        </div>
-        <div class="history-side">
-          <div class="history-metric"><b>${agg.doneCount}/${agg.totalCount}</b><span>${fmtDuration(agg.totalMin) || "0 min"}</span></div>
-          <span class="history-arrow">›</span>
-        </div>
-      </div>`;
-    });
+/* ---------- Tab: Phasen ---------- */
+function timelineHtml(t, st){
+  const start = parseDate(PLAN_START), end = parseDate(PLAN_END);
+  const span = dayDiff(start,end) + 1;
+  const pos = d=> clamp(dayDiff(start,d)/span*100, 0, 100);
+  let segs = "";
+  PHASES.forEach(p=>{
+    segs += `<span class="tl-seg ${phaseState(p,st,t)}" style="flex-grow:${phaseDays(p)}" title="${esc(p.name)}"></span>`;
+  });
+  let dots = "";
+  MILESTONES.forEach(m=>{
+    const d = parseDate(m.date);
+    dots += `<span class="tl-dot ${m.type} ${d<t?"done":""}" style="left:${pos(d)}%" title="${esc(m.title)}"></span>`;
+  });
+  let months = "";
+  for(let m = new Date(start.getFullYear(), start.getMonth(), 1); m <= end; m = new Date(m.getFullYear(), m.getMonth()+1, 1)){
+    months += `<span class="tl-month" style="left:${pos(m<start?start:m)}%">${MONTH_SHORT[m.getMonth()]}</span>`;
   }
+  let marker = "";
+  if(st.mode==="in"){
+    const p = clamp((dayDiff(start,t)+0.5)/span*100, 0, 100);
+    const edge = p<8 ? "edge-l" : p>92 ? "edge-r" : "";
+    marker = `<span class="tl-today ${edge}" style="left:${p}%"><span class="tl-today-lbl">Heute</span><span class="tl-today-line"></span></span>`;
+  }
+  const label = st.mode==="in"
+    ? `Zeitleiste der Vorbereitung: ${st.phase.name}, Gesamtwoche ${st.overallWeek} von ${st.totalWeeks}`
+    : `Zeitleiste der Vorbereitung, ${st.totalWeeks} Wochen`;
+  return `<div class="timeline" role="img" aria-label="${esc(label)}">
+    <div class="tl-area">
+      ${marker}
+      <div class="tl-bar">${segs}</div>
+      <div class="tl-dots">${dots}</div>
+      <div class="tl-months">${months}</div>
+    </div>
+  </div>`;
+}
+function hereCardHtml(st){
+  if(st.mode==="before"){
+    return `<div class="here-card">
+      <div class="stat-title">Du bist hier</div>
+      <div class="here-name">Vor dem Start</div>
+      <div class="here-meta">Start ${inDays(st.daysToStart)} · ${st.totalWeeks} Wochen bis Ironman</div>
+      <div class="here-next">Als Nächstes: ${shortPhaseName(st.next)} ab ${longDate(parseDate(st.next.start))}</div>
+    </div>`;
+  }
+  if(st.mode==="after"){
+    return `<div class="here-card">
+      <div class="stat-title">Du bist hier</div>
+      <div class="here-name">Nach dem Rennen · Regeneration</div>
+      <div class="here-meta">${raceName()} · ${longDate(parseDate(PLAN_END))}</div>
+    </div>`;
+  }
+  return `<div class="here-card current">
+    <div class="stat-title">Du bist hier</div>
+    <div class="here-name">${st.phase.name}</div>
+    <div class="here-tagline">${st.phase.tagline}</div>
+    <div class="week-progress-top"><span>Woche <b>${st.week}</b> von ${st.weeks}</span><span>${st.pct} %</span></div>
+    <span class="progress-track" role="progressbar" aria-label="Fortschritt ${esc(st.phase.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${st.pct}"><span class="progress-fill" style="width:${st.pct}%"></span></span>
+    <div class="here-next">${nextPhaseLine(st)}</div>
+  </div>`;
+}
+function listHtml(items){ return `<ul class="phase-list">${items.map(i=>`<li>${i}</li>`).join("")}</ul>`; }
+function phaseItemHtml(p, state){
+  const ps = parseDate(p.start), pe = parseDate(p.end);
+  const chip = { done:"abgeschlossen", current:"aktuell", upcoming:"kommend" }[state];
+  const weeks = phaseWeeks(p);
+  let body = `<p class="phase-tagline">${p.tagline}</p>`;
+  if(p.goals?.length) body += `<div class="phase-sub">Ziele</div>${listHtml(p.goals)}`;
+  if(p.focus){
+    body += `<div class="phase-sub">Schwerpunkte</div><div class="phase-rows">`;
+    FOCUS_ROWS.forEach(([k,label])=>{
+      if(p.focus[k]) body += `<div class="block" style="--accent-c:${ACCENT[k]||"var(--rest)"}"><span class="block-label">${label}</span><span class="block-text">${p.focus[k]}</span></div>`;
+    });
+    body += `</div>`;
+  }
+  if(p.targets){
+    body += `<div class="phase-sub">Richtwerte</div><div class="phase-rows">`;
+    ["run","bike","swim"].forEach(k=>{
+      if(p.targets[k]) body += `<div class="block" style="--accent-c:${ACCENT[k]}"><span class="block-label">${SPORT_LABEL[k]}</span><span class="block-text">${p.targets[k]}</span></div>`;
+    });
+    body += `</div>`;
+  }
+  if(p.readyWhen?.length) body += `<div class="phase-sub">Bereit für die nächste Phase, wenn …</div>${listHtml(p.readyWhen)}`;
+  if(p.watchOut?.length) body += `<div class="phase-sub">Worauf achten</div>${listHtml(p.watchOut)}`;
+  return `<details class="phase-item ${state}" id="phase-${p.key}" data-phase="${p.key}" ${openPhases.has(p.key)?"open":""}>
+    <summary>
+      <span class="phase-sum-main">
+        <span class="phase-name">${p.name}</span>
+        <span class="phase-range">${longDate(ps)} – ${longDate(pe)} · ${weeks} Woche${weeks===1?"":"n"}</span>
+      </span>
+      <span class="status-chip ${state}">${chip}</span>
+      <span class="phase-chevron" aria-hidden="true">›</span>
+    </summary>
+    <div class="phase-body">${body}</div>
+  </details>`;
+}
+function milestonesHtml(t){
+  const nextIdx = MILESTONES.findIndex(m=> parseDate(m.date) >= t);
+  let html = `<ol class="ms-list">`;
+  MILESTONES.forEach((m,i)=>{
+    const d = parseDate(m.date);
+    const diff = dayDiff(t,d);
+    const state = diff<0 ? "done" : i===nextIdx ? "next" : "upcoming";
+    const when = state==="done" ? "erledigt" : inDays(diff);
+    html += `<li class="ms-item ${state} ${m.type}">
+      <span class="ms-icon" aria-hidden="true">${MILESTONE_ICONS[m.type] || MILESTONE_ICONS.checkpoint}</span>
+      <span class="ms-main">
+        <span class="ms-title">${m.title}</span>
+        <span class="ms-meta">${longDate(d)} · ${when}${state==="next"?' · <b>nächster</b>':""}${m.tentative ? ` <span class="status-chip tentative">unter Vorbehalt</span>` : ""}</span>
+        ${m.note && !(m.tentative && /^unter vorbehalt$/i.test(m.note)) ? `<span class="ms-note">${m.note}</span>` : ""}
+      </span>
+    </li>`;
+  });
+  return html + `</ol>`;
+}
+function renderPhases(){
+  const t = todayDate();
+  const st = phaseStatus(t);
+  if(!openPhases) openPhases = new Set(st.mode==="in" ? [st.phase.key] : []);
+  const dRace = dayDiff(t, parseDate(PLAN_END));
+  const raceInfo = dRace>1 ? `noch ${dRace} Tage` : dRace===1 ? "noch 1 Tag" : dRace===0 ? "heute" : "vorbei";
+  let html = `<div class="section-title">Phasen</div>
+    <div class="section-sub">${raceName()} · ${longDate(parseDate(PLAN_END))} · ${raceInfo}</div>
+    ${timelineHtml(t, st)}
+    ${hereCardHtml(st)}
+    <div class="stat-title phase-section-title">Alle Phasen</div>`;
+  PHASES.forEach(p=>{ html += phaseItemHtml(p, phaseState(p,st,t)); });
+  html += `<div class="stat-title phase-section-title">Meilensteine</div>${milestonesHtml(t)}`;
+  html += `<div class="footer-note">Phasen sind Planungsrichtwerte und werden nach jedem Check-in angepasst.</div>`;
   return html;
 }
 
@@ -383,6 +795,61 @@ function applyEnterFx(app, reason, detail, prevFillWidth){
   }
 }
 
+/* ---------- Event-Handler (neue Bereiche) ---------- */
+function bindPhaseHandlers(app){
+  app.querySelector("[data-goto-phase]")?.addEventListener("click", e=>{
+    const key = e.currentTarget.dataset.gotoPhase;
+    if(!openPhases) openPhases = new Set();
+    if(key) openPhases.add(key);
+    activeTab = "phases";
+    render("tab");
+    const el = key && document.getElementById("phase-"+key);
+    if(el && el.scrollIntoView){
+      const smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      el.scrollIntoView({ block:"start", behavior: smooth ? "smooth" : "auto" });
+    } else window.scrollTo(0,0);
+  });
+  app.querySelectorAll("details.phase-item").forEach(d=>{
+    d.addEventListener("toggle", ()=>{
+      if(d.open) openPhases.add(d.dataset.phase); else openPhases.delete(d.dataset.phase);
+    });
+  });
+}
+function bindCheckinHandlers(app){
+  // Kein render(): nur die Chips der Gruppe umschalten, damit Fokus/Scroll bleiben
+  app.querySelectorAll(".ci-chip").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const field = btn.dataset.ciField;
+      const raw = btn.dataset.ciVal;
+      const val = field==="circ" ? raw : Number(raw);
+      const wasOn = btn.getAttribute("aria-pressed")==="true";
+      updateCheckin(selectedKey, field, wasOn ? undefined : val);
+      btn.parentElement.querySelectorAll(".ci-chip").forEach(c=> c.setAttribute("aria-pressed", String(c===btn && !wasOn)));
+    });
+  });
+  const note = app.querySelector("[data-ci-note]");
+  if(note) note.addEventListener("input", ()=> updateCheckin(selectedKey, "note", note.value.trim() ? note.value : undefined));
+}
+function bindStatsHandlers(app){
+  const copyBtn = app.querySelector("[data-copy-checkin]");
+  if(copyBtn) copyBtn.addEventListener("click", ()=>{
+    const status = app.querySelector("[data-copy-status]");
+    copyText(weekCheckinText(weekForKey(ymd(new Date()))))
+      .then(()=>{ status.textContent = "Kopiert – jetzt im Coaching-Chat einfügen."; })
+      .catch(()=>{ status.textContent = "Kopieren nicht möglich."; });
+  });
+  app.querySelector("[data-export]")?.addEventListener("click", ()=>{
+    const status = app.querySelector("[data-backup-status]");
+    try{ exportData(); status.textContent = "Backup-Datei erstellt."; }
+    catch(e){ status.textContent = "Export fehlgeschlagen."; }
+  });
+  const fileInput = app.querySelector("[data-import]");
+  app.querySelector("[data-import-trigger]")?.addEventListener("click", ()=> fileInput.click());
+  if(fileInput) fileInput.addEventListener("change", ()=>{
+    if(fileInput.files && fileInput.files[0]) importData(fileInput.files[0], app.querySelector("[data-backup-status]"));
+  });
+}
+
 /* ---------- Haupt-Render ---------- */
 function render(reason, detail){
   const app = document.getElementById("app");
@@ -390,7 +857,7 @@ function render(reason, detail){
   let html = "";
   if(activeTab==="today") html = renderToday();
   else if(activeTab==="stats") html = renderStats();
-  else if(activeTab==="history") html = renderHistory();
+  else if(activeTab==="phases") html = renderPhases();
 
   app.innerHTML = `<main class="view view-${activeTab}">${html}</main>` + tabbarHtml();
   applyEnterFx(app, reason, detail, prevFillWidth);
@@ -417,14 +884,9 @@ function render(reason, detail){
       render("toggle", key);
     });
   });
-  app.querySelectorAll(".history-row").forEach(row=>{
-    row.addEventListener("click", ()=>{
-      selectedKey = row.dataset.jump;
-      activeTab = "today";
-      render("tab");
-      window.scrollTo(0,0);
-    });
-  });
+  bindPhaseHandlers(app);
+  bindCheckinHandlers(app);
+  bindStatsHandlers(app);
   app.querySelectorAll(".tab-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       activeTab = btn.dataset.tab;
